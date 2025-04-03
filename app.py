@@ -23,6 +23,8 @@ INSTAGRAM_PASSWORD = os.environ.get("INSTAGRAM_PASSWORD", "your_password")
 # Send mass DM function
 def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     logger.info(f"Starting mass DM process for target: {target_username}")
+    
+    # Check if there are participants in the default room '/' before emitting messages
     if socketio.server.manager.get_participants('/'):
         socketio.emit('update', f"Starting process for {target_username}'s followers")
     
