@@ -1,6 +1,8 @@
+import eventlet
+eventlet.monkey_patch()  # Ensure eventlet patches the standard library before any other imports.
+
 from flask import Flask, request, render_template, jsonify
 from flask_socketio import SocketIO
-import eventlet
 import time
 import os
 import logging
@@ -12,7 +14,10 @@ import random
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize the Flask app
 app = Flask(__name__)
+
+# Initialize Socket.IO with eventlet as the async mode
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
 # Get Instagram credentials from environment variables
@@ -84,7 +89,7 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                 logger.warning("No followers found")
                 socketio.emit('update', "No followers found - check the target username")
                 return
-                
+               
             logger.info(f"Found {len(followers)} followers")
             socketio.emit('update', f"Found {len(followers)} followers")
             
