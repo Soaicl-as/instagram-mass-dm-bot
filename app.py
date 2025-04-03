@@ -1,5 +1,5 @@
 import eventlet
-eventlet.monkey_patch()  # This ensures compatibility with async operations
+eventlet.monkey_patch()  # Ensures compatibility with async operations
 from flask import Flask, request, render_template, jsonify
 from flask_socketio import SocketIO
 import time
@@ -25,8 +25,11 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     logger.info(f"Starting mass DM process for target: {target_username}")
     
     # Check if there are participants in the default room '/' before emitting messages
-    if socketio.server.manager.get_participants('/'):
-        socketio.emit('update', f"Starting process for {target_username}'s followers")
+    try:
+        if socketio.server.manager.get_participants('/'):
+            socketio.emit('update', f"Starting process for {target_username}'s followers")
+    except Exception as e:
+        logger.error(f"Error checking participants: {str(e)}")
     
     # Configure Chrome options for Render
     options = webdriver.ChromeOptions()
