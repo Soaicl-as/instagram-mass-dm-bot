@@ -24,9 +24,10 @@ INSTAGRAM_PASSWORD = os.environ.get("INSTAGRAM_PASSWORD", "your_password")
 def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     logger.info(f"Starting mass DM process for target: {target_username}")
     
-    # Check if there are participants in the default room '/' before emitting messages
+    # Check if there are participants in the default room '/'
     try:
-        if socketio.server.manager.get_participants('/'):
+        participants = socketio.server.manager.get_participants('/')
+        if participants:
             socketio.emit('update', f"Starting process for {target_username}'s followers")
     except Exception as e:
         logger.error(f"Error checking participants: {str(e)}")
