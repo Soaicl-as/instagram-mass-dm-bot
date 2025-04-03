@@ -26,7 +26,7 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     
     # Check if there are participants in the default room '/'
     try:
-        participants = socketio.server.manager.get_participants('/')
+        participants = socketio.server.manager.get_participants('/', '/')  # Specify the namespace and room
         if participants:
             socketio.emit('update', f"Starting process for {target_username}'s followers")
     except Exception as e:
@@ -43,12 +43,12 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     try:
         logger.info("Initializing Chrome driver")
         driver = uc.Chrome(options=options)
-        if socketio.server.manager.get_participants('/'):
+        if socketio.server.manager.get_participants('/', '/'):
             socketio.emit('update', "Browser initialized")
         
         logger.info("Navigating to Instagram login page")
         driver.get("https://www.instagram.com/accounts/login/")
-        if socketio.server.manager.get_participants('/'):
+        if socketio.server.manager.get_participants('/', '/'):
             socketio.emit('update', "Navigated to Instagram login page")
         time.sleep(5)
 
@@ -63,21 +63,21 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
             
             login_button = driver.find_element("xpath", "//button[@type='submit']")
             login_button.click()
-            if socketio.server.manager.get_participants('/'):
+            if socketio.server.manager.get_participants('/', '/'):
                 socketio.emit('update', "Login credentials submitted")
             time.sleep(10)
             
             # Check if login was successful
             if "login" in driver.current_url:
                 logger.error("Login failed")
-                if socketio.server.manager.get_participants('/'):
+                if socketio.server.manager.get_participants('/', '/'):
                     socketio.emit('update', "Login failed - check your credentials")
                 return
             
             # Go to target user's followers list
             logger.info(f"Navigating to {target_username}'s following list")
             driver.get(f"https://www.instagram.com/{target_username}/followers/")
-            if socketio.server.manager.get_participants('/'):
+            if socketio.server.manager.get_participants('/', '/'):
                 socketio.emit('update', f"Navigated to {target_username}'s followers")
             time.sleep(8)
             
@@ -95,12 +95,12 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
             
             if not followers:
                 logger.warning("No followers found")
-                if socketio.server.manager.get_participants('/'):
+                if socketio.server.manager.get_participants('/', '/'):
                     socketio.emit('update', "No followers found - check the target username")
                 return
                 
             logger.info(f"Found {len(followers)} followers")
-            if socketio.server.manager.get_participants('/'):
+            if socketio.server.manager.get_participants('/', '/'):
                 socketio.emit('update', f"Found {len(followers)} followers")
             
             # Limit to max_accounts
@@ -135,7 +135,7 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                     send_button = driver.find_element("xpath", "//button[contains(text(), 'Send')]")
                     send_button.click()
                     
-                    if socketio.server.manager.get_participants('/'):
+                    if socketio.server.manager.get_participants('/', '/'):
                         socketio.emit('update', f"Sent message to {follower}")
                     count += 1
                     
@@ -145,20 +145,20 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                     
                 except Exception as e:
                     logger.error(f"Error sending message to {follower}: {str(e)}")
-                    if socketio.server.manager.get_participants('/'):
+                    if socketio.server.manager.get_participants('/', '/'):
                         socketio.emit('update', f"Failed to send message to {follower}: {str(e)}")
             
-            if socketio.server.manager.get_participants('/'):
+            if socketio.server.manager.get_participants('/', '/'):
                 socketio.emit('update', f"Completed! Sent messages to {count} followers.")
             
         except Exception as e:
             logger.error(f"Error during Instagram automation: {str(e)}")
-            if socketio.server.manager.get_participants('/'):
+            if socketio.server.manager.get_participants('/', '/'):
                 socketio.emit('update', f"Error: {str(e)}")
     
     except Exception as e:
         logger.error(f"Error initializing Chrome: {str(e)}")
-        if socketio.server.manager.get_participants('/'):
+        if socketio.server.manager.get_participants('/', '/'):
             socketio.emit('update', f"Browser initialization error: {str(e)}")
         
     finally:
