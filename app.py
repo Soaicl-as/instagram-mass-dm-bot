@@ -8,20 +8,22 @@ import logging
 from selenium import webdriver
 import undetected_chromedriver as uc
 import random
+import gc
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Updated Socket.IO configuration with ping_timeout and ping_interval
+# Updated Socket.IO configuration with optimized settings
 socketio = SocketIO(
     app, 
     async_mode='eventlet', 
     cors_allowed_origins="*",
-    ping_timeout=60,  # Increase ping timeout
-    ping_interval=25,  # Adjust ping interval
-    engineio_logger=True  # Enable engineio logging for debugging
+    ping_timeout=120,  # Increased ping timeout
+    ping_interval=25,  # Adjusted ping interval
+    engineio_logger=True,  # Enable engineio logging for debugging
+    max_http_buffer_size=5e6  # Limit buffer size
 )
 
 # Get Instagram credentials from environment variables
@@ -36,21 +38,27 @@ def safe_emit(event, message):
     except Exception as e:
         logger.error(f"Socket emit error: {str(e)}")
 
-# Send mass DM function
+# Send mass DM function - optimized for memory usage
 def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     logger.info(f"Starting mass DM process for target: {target_username}")
-    
-    # Safer way to emit updates
     safe_emit('update', f"Starting process for {target_username}'s followers")
     
-    # Configure Chrome options for Render
+    # Configure Chrome options for Render - optimized for memory usage
     options = webdriver.ChromeOptions()
     options.headless = True
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--window-size=1280,720")  # Reduced window size
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-logging")
+    options.add_argument("--log-level=3")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for memory saving
     
+    driver = None
     try:
         logger.info("Initializing Chrome driver")
         driver = uc.Chrome(options=options)
@@ -82,22 +90,31 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                 return
             
             # Go to target user's followers list
-            logger.info(f"Navigating to {target_username}'s following list")
+            logger.info(f"Navigating to {target_username}'s followers list")
             driver.get(f"https://www.instagram.com/{target_username}/followers/")
             safe_emit('update', f"Navigated to {target_username}'s followers")
             time.sleep(8)
             
-            # Extract followers
+            # Extract followers - improved with memory efficiency
             logger.info("Extracting followers")
             follower_elements = driver.find_elements("xpath", "//a[@role='link']")
             followers = []
             
+            # Process in batches to save memory
             for element in follower_elements:
-                username = element.get_attribute("href")
-                if username and "//" in username:
-                    username = username.split("/")[-2]
-                    if username and username != target_username:
-                        followers.append(username)
+                try:
+                    username = element.get_attribute("href")
+                    if username and "//" in username:
+                        username = username.split("/")[-2]
+                        if username and username != target_username:
+                            followers.append(username)
+                except Exception as e:
+                    logger.warning(f"Error extracting follower: {str(e)}")
+                    continue
+            
+            # Clear element references to free memory
+            del follower_elements
+            gc.collect()
             
             if not followers:
                 logger.warning("No followers found")
@@ -142,6 +159,9 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                     safe_emit('update', f"Sent message to {follower}")
                     count += 1
                     
+                    # Force garbage collection after each message
+                    gc.collect()
+                    
                     # Add random delay to avoid detection
                     actual_delay = delay_between_msgs + random.uniform(0.5, 2)
                     time.sleep(actual_delay)
@@ -149,6 +169,10 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                 except Exception as e:
                     logger.error(f"Error sending message to {follower}: {str(e)}")
                     safe_emit('update', f"Failed to send message to {follower}: {str(e)}")
+                
+                # Free memory by clearing page
+                driver.execute_script("window.history.go(-1)")
+                eventlet.sleep(1)  # Yield control to prevent timeout
             
             safe_emit('update', f"Completed! Sent messages to {count} followers.")
             
@@ -162,9 +186,11 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
         
     finally:
         try:
-            if 'driver' in locals():
+            if driver:
                 driver.quit()
                 logger.info("Driver closed")
+                del driver
+                gc.collect()  # Force garbage collection
         except Exception as e:
             logger.error(f"Error closing driver: {str(e)}")
 
@@ -175,6 +201,9 @@ def index():
         message = request.form["message"]
         delay_between_msgs = int(request.form["delay_between_msgs"])
         max_accounts = int(request.form["max_accounts"])
+        
+        # Limit max_accounts to prevent memory issues
+        max_accounts = min(max_accounts, 30)
         
         # Start background task safely
         socketio.start_background_task(
@@ -202,4 +231,5 @@ def handle_disconnect():
     logger.info(f"Client disconnected: {request.sid}")
 
 if __name__ == "__main__":
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Use lower worker connections and shorter timeout
+    socketio.run(app, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
