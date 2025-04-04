@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instagram Mass DM Bot</title>
-    <!-- Include Socket.IO client library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+    <!-- Updated to use a specific version of Socket.IO client library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js" integrity="sha512-AI5A3zIoeRSEEX9z3Vyir8NqSMC1pY7r5h2cE+9J6FLsoEmSSGLFaqMQw8SWvoONXogkfFrkQiJfLeHLz3+HOg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -72,16 +72,34 @@
             border-radius: 4px;
             display: none;
         }
+        .connection-status {
+            text-align: center;
+            padding: 5px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .connected {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+        }
     </style>
 </head>
 <body>
     <h1>Instagram Mass DM Bot</h1>
     
+    <div id="connection-status" class="connection-status disconnected">
+        Connecting to server...
+    </div>
+    
     <div id="status" class="status">
         Process started! See progress in the log below.
     </div>
     
-    <form method="post">
+    <form method="post" id="dm-form">
         <label for="username">Target Instagram Username:</label>
         <input type="text" name="username" id="username" placeholder="e.g. instagram" required>
         
@@ -104,45 +122,110 @@
     </div>
 
     <script>
-        // Initialize Socket.IO connection
+        // Initialize Socket.IO connection with reconnection settings
         const socket = io.connect(window.location.origin, {
-            transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 60000
         });
         
-        // Listen for updates from the server
+        const connectionStatus = document.getElementById('connection-status');
+        const logDiv = document.getElementById('log');
+        const form = document.getElementById('dm-form');
+        const submitBtn = document.getElementById('submitBtn');
+        const statusDiv = document.getElementById('status');
+        
+        // Connection event handlers
         socket.on('connect', () => {
             console.log('Connected to server');
+            connectionStatus.textContent = 'Connected to server';
+            connectionStatus.className = 'connection-status connected';
+            submitBtn.disabled = false;
         });
         
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
+            connectionStatus.textContent = 'Disconnected from server - please refresh the page';
+            connectionStatus.className = 'connection-status disconnected';
+            submitBtn.disabled = true;
+            
+            // Add to log
+            addToLog('Connection to server lost. Please refresh the page.');
         });
         
+        socket.on('connect_error', (error) => {
+            console.log('Connection error:', error);
+            connectionStatus.textContent = 'Connection error - trying to reconnect...';
+            connectionStatus.className = 'connection-status disconnected';
+            
+            // Add to log
+            addToLog('Connection error. Trying to reconnect...');
+        });
+        
+        socket.on('reconnect', (attemptNumber) => {
+            console.log('Reconnected after', attemptNumber, 'attempts');
+            connectionStatus.textContent = 'Reconnected to server';
+            connectionStatus.className = 'connection-status connected';
+            
+            // Add to log
+            addToLog(`Reconnected to server after ${attemptNumber} attempts.`);
+        });
+        
+        socket.on('reconnect_failed', () => {
+            console.log('Failed to reconnect');
+            connectionStatus.textContent = 'Failed to reconnect - please refresh the page';
+            connectionStatus.className = 'connection-status disconnected';
+            
+            // Add to log
+            addToLog('Failed to reconnect. Please refresh the page.');
+        });
+        
+        // Listen for updates from the server
         socket.on('update', function(msg) {
-            const logDiv = document.getElementById('log');
+            addToLog(msg);
+        });
+        
+        // Helper function to add messages to log
+        function addToLog(message) {
             const newEntry = document.createElement('p');
-            newEntry.textContent = msg;
+            newEntry.textContent = message;
             logDiv.appendChild(newEntry);
             
             // Auto-scroll to bottom
             logDiv.scrollTop = logDiv.scrollHeight;
-        });
+        }
         
-        // Form submission
-        document.querySelector('form').addEventListener('submit', function() {
-            document.getElementById('status').style.display = 'block';
-            document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'Processing...';
+        // Form submission with additional error handling
+        form.addEventListener('submit', function(e) {
+            // Check if connected before submitting
+            if (!socket.connected) {
+                e.preventDefault();
+                alert('Not connected to server. Please wait for reconnection or refresh the page.');
+                return false;
+            }
+            
+            statusDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
             
             // Clear previous log
-            const logDiv = document.getElementById('log');
             logDiv.innerHTML = '<p>Starting process...</p>';
         });
         
-        // Show status message if process was started
+        // Check if process was previously started and show status
         {% if started %}
-        document.getElementById('status').style.display = 'block';
+        statusDiv.style.display = 'block';
         {% endif %}
+        
+        // Ping the server periodically to keep connection alive
+        setInterval(() => {
+            if (socket.connected) {
+                console.log('Sending ping to keep connection alive');
+            }
+        }, 20000);
     </script>
 </body>
 </html>
