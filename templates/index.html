@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instagram Mass DM Bot</title>
-    <!-- Updated to use a specific version of Socket.IO client library -->
+    <!-- Using a lightweight version of Socket.IO client -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js" integrity="sha512-AI5A3zIoeRSEEX9z3Vyir8NqSMC1pY7r5h2cE+9J6FLsoEmSSGLFaqMQw8SWvoONXogkfFrkQiJfLeHLz3+HOg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body {
@@ -107,12 +107,12 @@
         <textarea name="message" id="message" rows="4" placeholder="Enter your message here..." required></textarea>
         
         <label for="delay_between_msgs">Delay Between Messages (seconds):</label>
-        <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="10" value="30" required>
-        <small>Recommended: 30+ seconds to avoid detection</small>
+        <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="20" value="30" required>
+        <small>Minimum 20 seconds to avoid detection and reduce server load</small>
         
         <label for="max_accounts">Max Accounts to Message:</label>
-        <input type="number" name="max_accounts" id="max_accounts" min="1" max="50" value="10" required>
-        <small>Maximum 50 accounts recommended per session</small>
+        <input type="number" name="max_accounts" id="max_accounts" min="1" max="20" value="10" required>
+        <small>Maximum 20 accounts per session to prevent timeouts</small>
         
         <button type="submit" id="submitBtn">Start Messaging</button>
     </form>
@@ -122,88 +122,115 @@
     </div>
 
     <script>
-        // Initialize Socket.IO connection with reconnection settings
-        const socket = io.connect(window.location.origin, {
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 60000
-        });
-        
+        // Global variables
         const connectionStatus = document.getElementById('connection-status');
         const logDiv = document.getElementById('log');
         const form = document.getElementById('dm-form');
         const submitBtn = document.getElementById('submitBtn');
         const statusDiv = document.getElementById('status');
         
-        // Connection event handlers
+        // Limit log entries to prevent memory issues
+        const MAX_LOG_ENTRIES = 100;
+        let logEntries = 0;
+        
+        // Initialize Socket.IO with optimized settings
+        const socket = io.connect(window.location.origin, {
+            transports: ['websocket'], // Use only websockets to reduce overhead
+            reconnection: true,
+            reconnectionAttempts: 3,
+            reconnectionDelay: 2000,
+            reconnectionDelayMax: 10000,
+            timeout: 20000, // Reduced timeout
+            forceNew: false,
+            upgrade: false
+        });
+        
+        // Connection event handlers with cleanup
         socket.on('connect', () => {
-            console.log('Connected to server');
             connectionStatus.textContent = 'Connected to server';
             connectionStatus.className = 'connection-status connected';
             submitBtn.disabled = false;
         });
         
         socket.on('disconnect', () => {
-            console.log('Disconnected from server');
             connectionStatus.textContent = 'Disconnected from server - please refresh the page';
             connectionStatus.className = 'connection-status disconnected';
             submitBtn.disabled = true;
-            
-            // Add to log
             addToLog('Connection to server lost. Please refresh the page.');
         });
         
-        socket.on('connect_error', (error) => {
-            console.log('Connection error:', error);
+        socket.on('connect_error', () => {
             connectionStatus.textContent = 'Connection error - trying to reconnect...';
             connectionStatus.className = 'connection-status disconnected';
-            
-            // Add to log
-            addToLog('Connection error. Trying to reconnect...');
         });
         
         socket.on('reconnect', (attemptNumber) => {
-            console.log('Reconnected after', attemptNumber, 'attempts');
             connectionStatus.textContent = 'Reconnected to server';
             connectionStatus.className = 'connection-status connected';
-            
-            // Add to log
             addToLog(`Reconnected to server after ${attemptNumber} attempts.`);
         });
         
         socket.on('reconnect_failed', () => {
-            console.log('Failed to reconnect');
             connectionStatus.textContent = 'Failed to reconnect - please refresh the page';
             connectionStatus.className = 'connection-status disconnected';
-            
-            // Add to log
             addToLog('Failed to reconnect. Please refresh the page.');
         });
         
-        // Listen for updates from the server
+        // Listen for updates from the server with debouncing
+        let lastUpdateTime = 0;
+        const UPDATE_THROTTLE = 100; // milliseconds
+        
         socket.on('update', function(msg) {
-            addToLog(msg);
+            const now = Date.now();
+            if (now - lastUpdateTime > UPDATE_THROTTLE) {
+                addToLog(msg);
+                lastUpdateTime = now;
+            }
         });
         
-        // Helper function to add messages to log
+        // Helper function to add messages to log with entry limiting
         function addToLog(message) {
+            // Limit log entries to prevent memory buildup
+            if (logEntries >= MAX_LOG_ENTRIES) {
+                // Remove oldest log entry
+                if (logDiv.firstChild) {
+                    logDiv.removeChild(logDiv.firstChild);
+                }
+            } else {
+                logEntries++;
+            }
+            
             const newEntry = document.createElement('p');
             newEntry.textContent = message;
             logDiv.appendChild(newEntry);
             
-            // Auto-scroll to bottom
-            logDiv.scrollTop = logDiv.scrollHeight;
+            // Auto-scroll to bottom with throttling
+            requestAnimationFrame(() => {
+                logDiv.scrollTop = logDiv.scrollHeight;
+            });
         }
         
-        // Form submission with additional error handling
+        // Form submission with validation
         form.addEventListener('submit', function(e) {
-            // Check if connected before submitting
             if (!socket.connected) {
                 e.preventDefault();
                 alert('Not connected to server. Please wait for reconnection or refresh the page.');
+                return false;
+            }
+            
+            // Enforce server-side limits on client too
+            const delayInput = document.getElementById('delay_between_msgs');
+            const maxAccountsInput = document.getElementById('max_accounts');
+            
+            if (parseInt(delayInput.value) < 20) {
+                e.preventDefault();
+                alert('Minimum delay between messages must be 20 seconds.');
+                return false;
+            }
+            
+            if (parseInt(maxAccountsInput.value) > 20) {
+                e.preventDefault();
+                alert('Maximum 20 accounts per session to prevent timeouts.');
                 return false;
             }
             
@@ -211,21 +238,29 @@
             submitBtn.disabled = true;
             submitBtn.textContent = 'Processing...';
             
-            // Clear previous log
+            // Clear log for new session
             logDiv.innerHTML = '<p>Starting process...</p>';
+            logEntries = 1;
         });
         
-        // Check if process was previously started and show status
+        // Check if process was previously started
         {% if started %}
         statusDiv.style.display = 'block';
         {% endif %}
         
-        // Ping the server periodically to keep connection alive
-        setInterval(() => {
+        // Lightweight heartbeat to keep connection alive
+        const heartbeatInterval = setInterval(() => {
             if (socket.connected) {
-                console.log('Sending ping to keep connection alive');
+                // Send lightweight ping rather than logging
+                socket.emit('ping');
             }
-        }, 20000);
+        }, 30000);
+        
+        // Clean up on page unload to prevent memory leaks
+        window.addEventListener('beforeunload', () => {
+            clearInterval(heartbeatInterval);
+            socket.disconnect();
+        });
     </script>
 </body>
 </html>
