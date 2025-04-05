@@ -1,7 +1,7 @@
 import eventlet
 eventlet.monkey_patch()  # Ensure compatibility with async operations
 from flask import Flask, request, render_template, jsonify
-from flask_socketio import SocketIO, disconnect
+from flask_socketio import SocketIO
 import time
 import os
 import logging
@@ -36,12 +36,12 @@ if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
     logger.error("Instagram credentials not set in environment variables.")
     raise ValueError("Instagram credentials must be set in environment variables.")
 
-# Safe emitter function to avoid bad file descriptor errors
+# Safe emit function to avoid bad file descriptor errors
 def safe_emit(event, message):
     with thread_lock:
         try:
             socketio.emit(event, message)
-            eventlet.sleep(0.2)  # Ensure event loop processes events
+            eventlet.sleep(0.5)  # Increased delay to ensure event loop processes events
         except Exception as e:
             logger.error(f"Socket emit error: {str(e)}")
 
