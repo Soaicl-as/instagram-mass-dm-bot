@@ -1,7 +1,7 @@
 import eventlet
 eventlet.monkey_patch()  # Ensure compatibility with async operations
 from flask import Flask, request, render_template, jsonify
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, disconnect
 import time
 import os
 import logging
