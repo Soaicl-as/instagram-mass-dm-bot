@@ -1,5 +1,5 @@
 import eventlet
-eventlet.monkey_patch()  # Ensures compatibility with async operations
+eventlet.monkey_patch()  # Ensure compatibility with async operations
 from flask import Flask, request, render_template, jsonify
 from flask_socketio import SocketIO
 import time
@@ -18,8 +18,8 @@ socketio = SocketIO(
     app,
     async_mode='eventlet',
     cors_allowed_origins="*",
-    ping_timeout=60,
-    ping_interval=20,
+    ping_timeout=60000,  # Increased timeout
+    ping_interval=25000,  # Increased interval
     engineio_logger=True,
     max_http_buffer_size=1e6,
     async_handlers=True,
@@ -41,7 +41,7 @@ def safe_emit(event, message):
     with thread_lock:
         try:
             socketio.emit(event, message)
-            eventlet.sleep(0.1)  # Give control back to eventlet to process the event
+            eventlet.sleep(0.2)  # Increased delay to ensure event loop processes events
         except Exception as e:
             logger.error(f"Socket emit error: {str(e)}")
 
