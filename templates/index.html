@@ -16,25 +16,30 @@
                 <div>
                     <label for="username" class="block text-sm font-medium text-gray-700">Target Username</label>
                     <input type="text" name="username" id="username" required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                           pattern="[A-Za-z0-9._]{1,30}"
+                           title="Please enter a valid Instagram username">
                 </div>
 
                 <div>
                     <label for="message" class="block text-sm font-medium text-gray-700">Message</label>
-                    <textarea name="message" id="message" rows="3" required
+                    <textarea name="message" id="message" rows="3" required maxlength="1000"
                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
+                    <p class="text-sm text-gray-500 mt-1">Maximum 1000 characters</p>
                 </div>
 
                 <div>
                     <label for="delay_between_msgs" class="block text-sm font-medium text-gray-700">Delay Between Messages (seconds)</label>
-                    <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="30" value="45" required
+                    <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="45" max="120" value="60" required
                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <p class="text-sm text-gray-500 mt-1">Minimum 45 seconds recommended</p>
                 </div>
 
                 <div>
                     <label for="max_accounts" class="block text-sm font-medium text-gray-700">Maximum Number of Accounts</label>
-                    <input type="number" name="max_accounts" id="max_accounts" min="1" max="100" value="50" required
+                    <input type="number" name="max_accounts" id="max_accounts" min="1" max="30" value="20" required
                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <p class="text-sm text-gray-500 mt-1">Maximum 30 accounts per session</p>
                 </div>
 
                 <button type="submit" id="submitBtn"
@@ -47,45 +52,101 @@
                 <h2 class="text-lg font-semibold mb-2">Status Updates</h2>
                 <div id="updates" class="bg-gray-50 p-4 rounded-md h-64 overflow-y-auto space-y-2">
                 </div>
+                <div class="mt-4">
+                    <button id="stopBtn" class="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 hidden">
+                        Stop Process
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const socket = io();
+            const socket = io({
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                timeout: 20000
+            });
+            
             const updates = document.getElementById('updates');
             const status = document.getElementById('status');
             const form = document.getElementById('dmForm');
             const submitBtn = document.getElementById('submitBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            let isProcessing = false;
 
             socket.on('connect', function() {
                 console.log('Connected to server');
+                if (isProcessing) {
+                    addUpdate('Reconnected to server', 'success');
+                }
             });
 
             socket.on('disconnect', function() {
                 console.log('Disconnected from server');
-                addUpdate('Disconnected from server. Please refresh the page.', 'error');
+                addUpdate('Disconnected from server. Attempting to reconnect...', 'error');
             });
 
             socket.on('update', function(message) {
                 addUpdate(message);
+                if (message.includes('Process completed')) {
+                    resetForm();
+                }
             });
 
-            form.addEventListener('submit', function() {
-                status.classList.remove('hidden');
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Processing...';
-                updates.innerHTML = '';
-                addUpdate('Starting process...');
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!isProcessing) {
+                    isProcessing = true;
+                    status.classList.remove('hidden');
+                    stopBtn.classList.remove('hidden');
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Processing...';
+                    updates.innerHTML = '';
+                    addUpdate('Starting process...');
+                    
+                    const formData = new FormData(form);
+                    fetch('/', {
+                        method: 'POST',
+                        body: formData
+                    }).catch(error => {
+                        addUpdate('Error starting process: ' + error.message, 'error');
+                        resetForm();
+                    });
+                }
             });
+
+            stopBtn.addEventListener('click', function() {
+                socket.emit('stop_process');
+                addUpdate('Stopping process...', 'warning');
+            });
+
+            function resetForm() {
+                isProcessing = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Start Process';
+                stopBtn.classList.add('hidden');
+            }
 
             function addUpdate(message, type = 'info') {
                 const div = document.createElement('div');
-                div.className = `text-sm ${type === 'error' ? 'text-red-600' : 'text-gray-700'}`;
-                div.textContent = message;
+                const timestamp = new Date().toLocaleTimeString();
+                div.className = `text-sm ${getTypeClass(type)}`;
+                div.textContent = `[${timestamp}] ${message}`;
                 updates.appendChild(div);
                 updates.scrollTop = updates.scrollHeight;
+            }
+
+            function getTypeClass(type) {
+                switch(type) {
+                    case 'error': return 'text-red-600';
+                    case 'success': return 'text-green-600';
+                    case 'warning': return 'text-yellow-600';
+                    default: return 'text-gray-700';
+                }
             }
 
             // Reconnection handling
@@ -94,11 +155,20 @@
             });
 
             socket.on('reconnect', function(attemptNumber) {
-                addUpdate(`Reconnected after ${attemptNumber} attempts.`);
+                addUpdate(`Reconnected after ${attemptNumber} attempts.`, 'success');
             });
 
             socket.on('reconnect_error', function() {
                 addUpdate('Failed to reconnect. Please refresh the page.', 'error');
+                resetForm();
+            });
+
+            // Handle page unload
+            window.addEventListener('beforeunload', function(e) {
+                if (isProcessing) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
             });
         });
     </script>
