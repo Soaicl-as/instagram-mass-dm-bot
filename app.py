@@ -2,7 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 
 from flask import Flask, request, render_template, jsonify
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
 import time
 import os
 import logging
@@ -13,6 +13,7 @@ import undetected_chromedriver as uc
 from threading import Lock, Event
 from dotenv import load_dotenv
 import gc
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -29,19 +30,22 @@ socketio = SocketIO(
     app,
     async_mode='eventlet',
     cors_allowed_origins="*",
-    ping_timeout=20,
-    ping_interval=10,
-    max_http_buffer_size=1e5,
+    ping_timeout=60,  # Increased timeout
+    ping_interval=25,  # More frequent pings
+    max_http_buffer_size=1e6,
     async_handlers=True,
     logger=True,
     reconnection=True,
-    reconnection_attempts=3,
+    reconnection_attempts=5,
     reconnection_delay=1000,
+    reconnection_delay_max=5000,
+    engineio_logger=True
 )
 
 # Thread lock and stop event
 thread_lock = Lock()
 stop_event = Event()
+active_drivers = set()
 
 # Get Instagram credentials
 INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
@@ -56,21 +60,28 @@ def cleanup_chrome_processes():
     try:
         for proc in psutil.process_iter(['pid', 'name']):
             if 'chrome' in proc.info['name'].lower():
-                proc.kill()
+                try:
+                    proc.kill()
+                except psutil.NoSuchProcess:
+                    pass
     except Exception as e:
         logger.error(f"Error cleaning up Chrome processes: {e}")
 
 def safe_emit(event, message):
     """Safely emit socket.io events with error handling and rate limiting"""
-    with thread_lock:
-        try:
+    try:
+        with thread_lock:
             socketio.emit(event, message, namespace='/')
             eventlet.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Socket emit error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Socket emit error: {str(e)}")
+        try:
+            socketio.emit('error', {'message': 'Communication error occurred'}, namespace='/')
+        except:
+            pass
 
 def initialize_chrome():
-    """Initialize Chrome with minimal memory usage"""
+    """Initialize Chrome with optimized settings"""
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -92,24 +103,26 @@ def initialize_chrome():
     options.add_argument("--disable-background-networking")
     options.add_argument("--safebrowsing-disable-auto-update")
     options.add_argument("--disable-client-side-phishing-detection")
+    options.add_argument("--memory-pressure-off")
     
     try:
         driver = uc.Chrome(options=options)
-        driver.set_page_load_timeout(15)
-        driver.implicitly_wait(5)
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(10)
+        active_drivers.add(driver)
         return driver
     except Exception as e:
         logger.error(f"Chrome initialization error: {str(e)}")
         return None
 
 def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
-    """Send mass DMs with memory-efficient processing"""
+    """Send mass DMs with improved error handling and memory management"""
     logger.info(f"Starting mass DM process for target: {target_username}")
     safe_emit('update', f"Starting process for {target_username}'s followers")
 
     driver = None
     processed_count = 0
-    max_retries = 2
+    max_retries = 3
     stop_event.clear()
 
     try:
@@ -120,7 +133,8 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
 
         safe_emit('update', "Browser initialized successfully")
 
-        # Login with retry mechanism
+        # Login with enhanced retry mechanism
+        login_successful = False
         for attempt in range(max_retries):
             if stop_event.is_set():
                 safe_emit('update', "Process stopped by user")
@@ -128,7 +142,7 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
 
             try:
                 driver.get("https://www.instagram.com/accounts/login/")
-                eventlet.sleep(2)
+                eventlet.sleep(3)
 
                 username_input = driver.find_element("name", "username")
                 password_input = driver.find_element("name", "password")
@@ -139,25 +153,35 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                 login_button = driver.find_element("xpath", "//button[@type='submit']")
                 login_button.click()
                 
-                eventlet.sleep(3)
+                eventlet.sleep(5)
                 
                 if "login" not in driver.current_url:
+                    login_successful = True
                     break
+                
+                eventlet.sleep(2 ** attempt)  # Exponential backoff
             except Exception as e:
-                if attempt == max_retries - 1:
+                logger.error(f"Login attempt {attempt + 1} failed: {str(e)}")
+                if attempt < max_retries - 1:
+                    safe_emit('update', f"Login attempt failed, retrying... ({attempt + 1}/{max_retries})")
+                    eventlet.sleep(2 ** attempt)
+                else:
                     raise Exception("Failed to login after multiple attempts")
-                eventlet.sleep(1)
+
+        if not login_successful:
+            raise Exception("Failed to login after multiple attempts")
 
         safe_emit('update', "Successfully logged in")
 
-        # Get followers with efficient pagination
+        # Get followers with improved pagination
         driver.get(f"https://www.instagram.com/{target_username}/followers/")
-        eventlet.sleep(2)
+        eventlet.sleep(3)
 
         followers = []
-        scroll_attempts = min(3, max_accounts // 10)
+        scroll_attempts = min(5, max_accounts // 8)
+        last_height = 0
         
-        for _ in range(scroll_attempts):
+        for attempt in range(scroll_attempts):
             if stop_event.is_set():
                 safe_emit('update', "Process stopped by user")
                 return
@@ -169,8 +193,14 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
             if len(followers) >= max_accounts:
                 break
                 
-            driver.execute_script("document.querySelector('div[role=\"dialog\"]').scrollTo(0, document.querySelector('div[role=\"dialog\"]').scrollHeight)")
-            eventlet.sleep(1)
+            dialog = driver.find_element("xpath", "//div[@role='dialog']")
+            driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", dialog)
+            eventlet.sleep(2)
+
+            new_height = driver.execute_script("return arguments[0].scrollHeight", dialog)
+            if new_height == last_height:
+                break
+            last_height = new_height
 
         if not followers:
             safe_emit('update', "No followers found or unable to access follower list")
@@ -178,8 +208,8 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
 
         safe_emit('update', f"Found {len(followers)} followers to process")
 
-        # Process followers in small batches
-        batch_size = 5
+        # Process followers with improved batching
+        batch_size = 3
         for i in range(0, len(followers), batch_size):
             if stop_event.is_set():
                 safe_emit('update', "Process stopped by user")
@@ -188,30 +218,30 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
             batch = followers[i:i + batch_size]
             
             for follower in batch:
-                try:
-                    if stop_event.is_set():
-                        safe_emit('update', "Process stopped by user")
-                        return
+                if stop_event.is_set():
+                    safe_emit('update', "Process stopped by user")
+                    return
 
+                try:
                     driver.get("https://www.instagram.com/direct/new/")
-                    eventlet.sleep(1)
+                    eventlet.sleep(2)
 
                     search_input = driver.find_element("xpath", "//input[@placeholder='Search...']")
                     search_input.clear()
                     search_input.send_keys(follower)
-                    eventlet.sleep(1)
+                    eventlet.sleep(2)
 
                     user_option = driver.find_element("xpath", f"//div[contains(text(), '{follower}')]")
                     user_option.click()
-                    eventlet.sleep(0.5)
+                    eventlet.sleep(1)
 
                     next_button = driver.find_element("xpath", "//button[contains(text(), 'Next')]")
                     next_button.click()
-                    eventlet.sleep(1)
+                    eventlet.sleep(2)
 
                     message_input = driver.find_element("xpath", "//textarea[@placeholder='Message...']")
                     message_input.send_keys(message)
-                    eventlet.sleep(0.5)
+                    eventlet.sleep(1)
 
                     send_button = driver.find_element("xpath", "//button[contains(text(), 'Send')]")
                     send_button.click()
@@ -224,12 +254,12 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
                 except Exception as e:
                     logger.error(f"Error sending message to {follower}: {str(e)}")
                     safe_emit('update', f"× Failed to message {follower}")
-                    eventlet.sleep(1)
+                    eventlet.sleep(2)
 
-            # Memory management between batches
+            # Memory management
             driver.execute_script("window.gc();")
             gc.collect()
-            eventlet.sleep(2)
+            eventlet.sleep(3)
 
     except Exception as e:
         logger.error(f"Critical error in mass DM process: {str(e)}")
@@ -239,6 +269,7 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
         if driver:
             try:
                 driver.quit()
+                active_drivers.remove(driver)
             except:
                 pass
             logger.info("Chrome driver closed")
@@ -279,23 +310,48 @@ def handle_stop_process():
     """Handle stop process request from client"""
     stop_event.set()
     logger.info("Stop process requested by user")
+    cleanup_chrome_processes()
 
 @app.route("/health", methods=["GET"])
 def health_check():
+    """Enhanced health check endpoint"""
+    memory = psutil.Process().memory_info()
     return jsonify({
         "status": "healthy",
-        "timestamp": time.time(),
-        "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024
+        "timestamp": datetime.utcnow().isoformat(),
+        "memory": {
+            "rss": memory.rss / 1024 / 1024,
+            "vms": memory.vms / 1024 / 1024
+        },
+        "active_drivers": len(active_drivers),
+        "cpu_percent": psutil.cpu_percent(),
+        "memory_percent": psutil.virtual_memory().percent
     }), 200
 
 @socketio.on('connect')
 def handle_connect():
+    """Handle client connection"""
     logger.info(f"Client connected: {request.sid}")
-    socketio.emit('status', {'status': 'connected', 'sid': request.sid})
+    socketio.emit('status', {
+        'status': 'connected',
+        'sid': request.sid,
+        'timestamp': datetime.utcnow().isoformat()
+    })
 
 @socketio.on('disconnect')
 def handle_disconnect():
+    """Handle client disconnection"""
     logger.info(f"Client disconnected: {request.sid}")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"Received signal {signum}")
+    cleanup_chrome_processes()
+    os._exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
