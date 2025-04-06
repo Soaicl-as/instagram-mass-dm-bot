@@ -1,5 +1,5 @@
-flask==2.3.3
-flask-socketio==5.3.6
+Flask==2.3.3
+Flask-SocketIO==5.3.6
 eventlet==0.33.3
 selenium==4.11.2
 undetected-chromedriver==3.5.4
@@ -7,3 +7,5 @@ gunicorn==21.2.0
 python-dotenv==1.0.0
 webdriver-manager==4.0.1
 psutil==5.9.5
+requests==2.31.0
+beautifulsoup4==4.12.2
