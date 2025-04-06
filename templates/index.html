@@ -3,246 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instagram Mass DM Bot</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js" integrity="sha512-AI5A3zIoeRSEEX9z3Vyir8NqSMC1pY7r5h2cE+9J6FLsoEmSSGLFaqMQw8SWvoONXogkfFrkQiJfLeHLz3+HOg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 20px;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 {
-            color: #405DE6;
-            text-align: center;
-        }
-        form {
-            background: #f9f9f9;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        input, textarea {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-        button {
-            background: #405DE6;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover {
-            background: #3651d3;
-        }
-        #log {
-            margin-top: 20px;
-            background: #f5f5f5;
-            padding: 15px;
-            border-radius: 8px;
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-        }
-        #log p {
-            margin: 5px 0;
-            padding: 5px;
-            border-bottom: 1px solid #eee;
-        }
-        .status {
-            font-weight: bold;
-            margin: 10px 0;
-            padding: 10px;
-            background: #e8f5e9;
-            border-radius: 4px;
-            display: none;
-        }
-        .connection-status {
-            text-align: center;
-            padding: 5px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-        }
-        .connected {
-            background-color: #e8f5e9;
-            color: #2e7d32;
-        }
-        .disconnected {
-            background-color: #ffebee;
-            color: #c62828;
-        }
-    </style>
+    <title>Instagram Mass DM Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body>
-    <h1>Instagram Mass DM Bot</h1>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
+            <h1 class="text-2xl font-bold mb-6 text-center">Instagram Mass DM Tool</h1>
+            
+            <form method="POST" class="space-y-4" id="dmForm">
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-700">Target Username</label>
+                    <input type="text" name="username" id="username" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
 
-    <div id="connection-status" class="connection-status disconnected">
-        Connecting to server...
-    </div>
+                <div>
+                    <label for="message" class="block text-sm font-medium text-gray-700">Message</label>
+                    <textarea name="message" id="message" rows="3" required
+                              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
+                </div>
 
-    <div id="status" class="status">
-        Process started! See progress in the log below.
-    </div>
+                <div>
+                    <label for="delay_between_msgs" class="block text-sm font-medium text-gray-700">Delay Between Messages (seconds)</label>
+                    <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="30" value="45" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
 
-    <form method="post" id="dm-form">
-        <label for="username">Target Instagram Username:</label>
-        <input type="text" name="username" id="username" placeholder="e.g. instagram" required>
+                <div>
+                    <label for="max_accounts" class="block text-sm font-medium text-gray-700">Maximum Number of Accounts</label>
+                    <input type="number" name="max_accounts" id="max_accounts" min="1" max="100" value="50" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
 
-        <label for="message">Message to Send:</label>
-        <textarea name="message" id="message" rows="4" placeholder="Enter your message here..." required></textarea>
+                <button type="submit" id="submitBtn"
+                        class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    Start Process
+                </button>
+            </form>
 
-        <label for="delay_between_msgs">Delay Between Messages (seconds):</label>
-        <input type="number" name="delay_between_msgs" id="delay_between_msgs" min="20" value="30" required>
-        <small>Minimum 20 seconds to avoid detection and reduce server load</small>
-
-        <label for="max_accounts">Max Accounts to Message:</label>
-        <input type="number" name="max_accounts" id="max_accounts" min="1" max="20" value="10" required>
-        <small>Maximum 20 accounts per session to prevent timeouts</small>
-
-        <button type="submit" id="submitBtn">Start Messaging</button>
-    </form>
-
-    <div id="log">
-        <p>Status log will appear here...</p>
+            <div id="status" class="mt-6 hidden">
+                <h2 class="text-lg font-semibold mb-2">Status Updates</h2>
+                <div id="updates" class="bg-gray-50 p-4 rounded-md h-64 overflow-y-auto space-y-2">
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        const connectionStatus = document.getElementById('connection-status');
-        const logDiv = document.getElementById('log');
-        const form = document.getElementById('dm-form');
-        const submitBtn = document.getElementById('submitBtn');
-        const statusDiv = document.getElementById('status');
+        document.addEventListener('DOMContentLoaded', function() {
+            const socket = io();
+            const updates = document.getElementById('updates');
+            const status = document.getElementById('status');
+            const form = document.getElementById('dmForm');
+            const submitBtn = document.getElementById('submitBtn');
 
-        const MAX_LOG_ENTRIES = 100;
-        let logEntries = 0;
-
-        const socket = io.connect(window.location.origin, {
-            transports: ['websocket'],
-            reconnection: true,
-            reconnectionAttempts: 3,
-            reconnectionDelay: 2000,
-            reconnectionDelayMax: 10000,
-            timeout: 20000,
-            forceNew: false,
-            upgrade: false
-        });
-
-        socket.on('connect', () => {
-            connectionStatus.textContent = 'Connected to server';
-            connectionStatus.className = 'connection-status connected';
-            submitBtn.disabled = false;
-        });
-
-        socket.on('disconnect', () => {
-            connectionStatus.textContent = 'Disconnected from server - please refresh the page';
-            connectionStatus.className = 'connection-status disconnected';
-            submitBtn.disabled = true;
-            addToLog('Connection to server lost. Please refresh the page.');
-        });
-
-        socket.on('connect_error', () => {
-            connectionStatus.textContent = 'Connection error - trying to reconnect...';
-            connectionStatus.className = 'connection-status disconnected';
-        });
-
-        socket.on('reconnect', (attemptNumber) => {
-            connectionStatus.textContent = 'Reconnected to server';
-            connectionStatus.className = 'connection-status connected';
-            addToLog(`Reconnected to server after ${attemptNumber} attempts.`);
-        });
-
-        socket.on('reconnect_failed', () => {
-            connectionStatus.textContent = 'Failed to reconnect - please refresh the page';
-            connectionStatus.className = 'connection-status disconnected';
-            addToLog('Failed to reconnect. Please refresh the page.');
-        });
-
-        let lastUpdateTime = 0;
-        const UPDATE_THROTTLE = 100;
-
-        socket.on('update', function(msg) {
-            const now = Date.now();
-            if (now - lastUpdateTime > UPDATE_THROTTLE) {
-                addToLog(msg);
-                lastUpdateTime = now;
-            }
-        });
-
-        function addToLog(message) {
-            if (logEntries >= MAX_LOG_ENTRIES) {
-                if (logDiv.firstChild) {
-                    logDiv.removeChild(logDiv.firstChild);
-                }
-            } else {
-                logEntries++;
-            }
-
-            const newEntry = document.createElement('p');
-            newEntry.textContent = message;
-            logDiv.appendChild(newEntry);
-
-            requestAnimationFrame(() => {
-                logDiv.scrollTop = logDiv.scrollHeight;
+            socket.on('connect', function() {
+                console.log('Connected to server');
             });
-        }
 
-        form.addEventListener('submit', function(e) {
-            if (!socket.connected) {
-                e.preventDefault();
-                alert('Not connected to server. Please wait for reconnection or refresh the page.');
-                return false;
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                addUpdate('Disconnected from server. Please refresh the page.', 'error');
+            });
+
+            socket.on('update', function(message) {
+                addUpdate(message);
+            });
+
+            form.addEventListener('submit', function() {
+                status.classList.remove('hidden');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Processing...';
+                updates.innerHTML = '';
+                addUpdate('Starting process...');
+            });
+
+            function addUpdate(message, type = 'info') {
+                const div = document.createElement('div');
+                div.className = `text-sm ${type === 'error' ? 'text-red-600' : 'text-gray-700'}`;
+                div.textContent = message;
+                updates.appendChild(div);
+                updates.scrollTop = updates.scrollHeight;
             }
 
-            const delayInput = document.getElementById('delay_between_msgs');
-            const maxAccountsInput = document.getElementById('max_accounts');
+            // Reconnection handling
+            socket.on('connect_error', function() {
+                addUpdate('Connection error. Attempting to reconnect...', 'error');
+            });
 
-            if (parseInt(delayInput.value) < 20) {
-                e.preventDefault();
-                alert('Minimum delay between messages must be 20 seconds.');
-                return false;
-            }
+            socket.on('reconnect', function(attemptNumber) {
+                addUpdate(`Reconnected after ${attemptNumber} attempts.`);
+            });
 
-            if (parseInt(maxAccountsInput.value) > 20) {
-                e.preventDefault();
-                alert('Maximum 20 accounts per session to prevent timeouts.');
-                return false;
-            }
-
-            statusDiv.style.display = 'block';
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Processing...';
-
-            logDiv.innerHTML = '<p>Starting process...</p>';
-            logEntries = 1;
-        });
-
-        {% if started %}
-        statusDiv.style.display = 'block';
-        {% endif %}
-
-        const heartbeatInterval = setInterval(() => {
-            if (socket.connected) {
-                socket.emit('ping');
-            }
-        }, 30000);
-
-        window.addEventListener('beforeunload', () => {
-            clearInterval(heartbeatInterval);
-            socket.disconnect();
+            socket.on('reconnect_error', function() {
+                addUpdate('Failed to reconnect. Please refresh the page.', 'error');
+            });
         });
     </script>
 </body>
