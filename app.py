@@ -14,6 +14,15 @@ from threading import Lock, Event
 from dotenv import load_dotenv
 import gc
 from datetime import datetime
+import socket
+import dns.resolver
+
+# Configure DNS resolver with Google's DNS
+dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+dns.resolver.default_resolver.nameservers = ['8.8.8.8', '8.8.4.4']
+
+# Increase socket timeout
+socket.setdefaulttimeout(30)
 
 # Load environment variables
 load_dotenv()
@@ -30,8 +39,8 @@ socketio = SocketIO(
     app,
     async_mode='eventlet',
     cors_allowed_origins="*",
-    ping_timeout=60,  # Increased timeout
-    ping_interval=25,  # More frequent pings
+    ping_timeout=60,
+    ping_interval=25,
     max_http_buffer_size=1e6,
     async_handlers=True,
     logger=True,
@@ -81,7 +90,7 @@ def safe_emit(event, message):
             pass
 
 def initialize_chrome():
-    """Initialize Chrome with optimized settings"""
+    """Initialize Chrome with optimized settings and DNS configuration"""
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -104,16 +113,27 @@ def initialize_chrome():
     options.add_argument("--safebrowsing-disable-auto-update")
     options.add_argument("--disable-client-side-phishing-detection")
     options.add_argument("--memory-pressure-off")
+    options.add_argument("--dns-prefetch-disable")  # Disable DNS prefetching
+    options.add_argument("--host-resolver-rules='MAP * 8.8.8.8'")  # Force DNS resolution through Google DNS
     
-    try:
-        driver = uc.Chrome(options=options)
-        driver.set_page_load_timeout(30)
-        driver.implicitly_wait(10)
-        active_drivers.add(driver)
-        return driver
-    except Exception as e:
-        logger.error(f"Chrome initialization error: {str(e)}")
-        return None
+    max_retries = 3
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            driver = uc.Chrome(options=options)
+            driver.set_page_load_timeout(30)
+            driver.implicitly_wait(10)
+            active_drivers.add(driver)
+            return driver
+        except Exception as e:
+            logger.error(f"Chrome initialization attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                safe_emit('update', f"Browser initialization attempt {attempt + 1} failed, retrying...")
+                eventlet.sleep(retry_delay)
+            else:
+                logger.error("All Chrome initialization attempts failed")
+                return None
 
 def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     """Send mass DMs with improved error handling and memory management"""
@@ -126,10 +146,17 @@ def send_mass_dm(target_username, message, delay_between_msgs, max_accounts):
     stop_event.clear()
 
     try:
-        driver = initialize_chrome()
-        if not driver:
-            safe_emit('update', "Failed to initialize browser - please try again")
-            return
+        # Initialize Chrome with retry mechanism
+        for attempt in range(max_retries):
+            driver = initialize_chrome()
+            if driver:
+                break
+            if attempt < max_retries - 1:
+                safe_emit('update', f"Retrying browser initialization (attempt {attempt + 2}/{max_retries})...")
+                eventlet.sleep(5)
+            else:
+                safe_emit('update', "Failed to initialize browser after multiple attempts - please try again later")
+                return
 
         safe_emit('update', "Browser initialized successfully")
 
