@@ -9,3 +9,4 @@ webdriver-manager==4.0.1
 psutil==5.9.5
 requests==2.31.0
 beautifulsoup4==4.12.2
+redis==5.0.1
