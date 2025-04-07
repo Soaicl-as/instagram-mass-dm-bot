@@ -40,6 +40,11 @@ bind = "0.0.0.0:10000"  # Explicitly bind to port 10000
 proxy_protocol = True
 proxy_allow_ips = "*"
 
+# WebSocket specific settings
+websocket_max_wait = 60
+websocket_ping_interval = 25
+websocket_ping_timeout = 60
+
 def on_starting(server):
     """Clean up any existing processes on startup"""
     os.system("pkill chrome")
@@ -49,3 +54,8 @@ def worker_exit(server, worker):
     """Clean up when worker exits"""
     os.system("pkill chrome")
     os.system("pkill chromedriver")
+
+def post_worker_init(worker):
+    """Configure worker after initialization"""
+    import eventlet
+    eventlet.monkey_patch()
