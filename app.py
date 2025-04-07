@@ -74,7 +74,9 @@ socketio = SocketIO(
     reconnection_attempts=5,
     reconnection_delay=1000,
     reconnection_delay_max=5000,
-    engineio_logger=True
+    engineio_logger=True,
+    manage_session=False,
+    websocket_max_wait=60
 )
 
 # Thread lock and stop event
@@ -405,6 +407,11 @@ def handle_stop_process():
     """Handle stop process request from client"""
     stop_event.set()
     logger.info("Stop process requested by user")
+
+@socketio.on('ping')
+def handle_ping():
+    """Handle ping from client to keep connection alive"""
+    emit('pong')
 
 @app.route("/health", methods=["GET"])
 def health_check():
